@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 250 247 240;
+  --surface: 255 255 255;
+  --ink: 61 52 45;
+  --muted: 125 114 104;
+  --line: 232 221 200;
+  --primary: 36 92 79;
+  --primary-fg: 255 255 255;
+  --sage: 168 195 160;
+  --beige: 232 221 200;
+}
+
+:root.dark {
+  --bg: 28 25 22;
+  --surface: 40 36 32;
+  --ink: 245 240 230;
+  --muted: 170 160 148;
+  --line: 70 62 54;
+  --primary: 108 168 148;
+  --primary-fg: 20 30 26;
+  --sage: 90 120 96;
+  --beige: 58 51 44;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    @apply bg-bg font-sans text-sm leading-normal text-ink antialiased;
+  }
+  button {
+    @apply cursor-pointer;
+  }
+  input,
+  select,
+  textarea {
+    @apply text-ink;
+  }
+}
+
+/* Планка книжкової полиці під кожною книгою */
+.shelf-item {
+  position: relative;
+  padding-bottom: 20px;
+}
+.shelf-item::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 12px;
+  border-radius: 6px;
+  background: rgb(var(--beige));
+  box-shadow: inset 0 -2px 0 rgb(var(--ink) / 0.12);
+}
+
+/* Єдиний вигляд стрілки в усіх списках, що випадають */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237d7268' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  background-size: 16px 16px;
+  padding-right: 2.5rem !important;
+}
