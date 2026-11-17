@@ -49,8 +49,11 @@ function ShelfBook({ book, draggable, onOpen }: { book: Book; draggable: boolean
         <BookCover title={book.title} author={book.author} coverUrl={book.coverUrl} />
         <div className="mt-2.5 line-clamp-2 text-[13px] font-semibold leading-tight">{book.title}</div>
         <div className="mt-0.5 truncate text-xs text-muted">{book.author}</div>
-        {book.status !== 'mine' && (
-          <div className="mt-1.5 flex flex-wrap gap-1"><Chip tone={tone[book.status]}>{STATUS_LABEL[book.status]}</Chip>{book.hidden && <Chip tone="danger">Приховано</Chip>}</div>
+        {(book.status !== 'mine' || book.hidden) && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {book.status !== 'mine' && <Chip tone={tone[book.status]}>{STATUS_LABEL[book.status]}</Chip>}
+            {book.hidden && <Chip tone="danger">Приховано</Chip>}
+          </div>
         )}
       </button>
     </div>

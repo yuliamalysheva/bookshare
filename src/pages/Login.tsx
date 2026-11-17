@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Button, TextField } from '../components/ui'
 import { Logo } from '../components/Layout'
-import { useStore, useToast } from '../store'
+import { resetDemoData, useStore, useToast } from '../store'
 
 export function Login() {
-  const me = useStore((s) => s.currentUserId)
+  const me = useStore((s) => s.users.some((u) => u.id === s.currentUserId && !u.blocked))
   const login = useStore((s) => s.login)
   const register = useStore((s) => s.register)
   const toast = useToast((s) => s.show)
@@ -24,14 +24,15 @@ export function Login() {
     e.preventDefault()
     setError('')
     if (!/^\S+@\S+\.\S+$/.test(email)) return setError('Введіть коректну електронну пошту')
-    if (password.length < 6) return setError('Пароль має містити щонайменше 6 символів')
     if (mode === 'register') {
+      if (password.length < 6) return setError('Пароль має містити щонайменше 6 символів')
       if (!name.trim()) return setError("Вкажіть ім'я")
       if (!city.trim()) return setError('Вкажіть місто')
       if (password !== password2) return setError('Паролі не збігаються')
       const err = register({ name, email, password, city })
       if (err) setError(err)
     } else {
+      if (!password) return setError('Введіть пароль')
       const err = login(email, password)
       if (err) setError(err)
     }
@@ -98,6 +99,7 @@ export function Login() {
         </div>
 
         {mode === 'login' && (
+          <>
           <button
             type="button"
             onClick={() => { setEmail('maria@email.com'); setPassword('123456') }}
@@ -105,6 +107,14 @@ export function Login() {
           >
             Демо-акаунт: maria@email.com / 123456 — натисніть, щоб підставити
           </button>
+          <button
+            type="button"
+            onClick={() => { if (window.confirm('Скинути всі демо-дані до початкових? Створені вами акаунти й книги буде видалено.')) resetDemoData() }}
+            className="mt-3 w-full text-center text-xs text-muted hover:text-danger hover:underline"
+          >
+            Скинути демо-дані
+          </button>
+          </>
         )}
       </form>
     </div>

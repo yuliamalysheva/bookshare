@@ -107,16 +107,25 @@ export interface UserStats {
 export function userStats(userId: string, requests: BookRequest[]): UserStats {
   const mine = requests.filter((r) => r.fromUserId === userId || r.toUserId === userId)
   const done = mine.filter((r) => r.status === 'completed')
-  const incoming = mine.filter((r) => r.toUserId === userId && r.status !== 'cancelled')
+  // автоматичні закриття системою не вважаємо відповіддю власника
+  const incoming = mine.filter((r) => r.toUserId === userId && r.status !== 'cancelled' && !r.auto)
   const answered = incoming.filter((r) => r.status !== 'pending').length
   const completed = done.length
   return {
     completed,
     exchanges: done.filter((r) => r.type === 'exchange').length,
     loans: done.filter((r) => r.type === 'loan').length,
-    gave: done.filter((r) => r.toUserId === userId).length,
-    received: done.filter((r) => r.fromUserId === userId).length,
+    // в обміні кожна сторона і дає, і отримує книгу
+    gave: done.filter((r) => r.toUserId === userId || r.type === 'exchange').length,
+    received: done.filter((r) => r.fromUserId === userId || r.type === 'exchange').length,
     answerRate: incoming.length ? Math.round((answered / incoming.length) * 100) : null,
     level: completed >= 3 ? 'trusted' : completed >= 1 ? 'some' : 'new',
   }
+}
+
+/** Сьогоднішня дата за місцевим часом у форматі YYYY-MM-DD (на відміну від toISOString, не зсувається через часовий пояс). */
+export const todayLocal = () => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }

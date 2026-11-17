@@ -19,10 +19,10 @@ interface Props {
 }
 
 const sizes = {
-  xs: { title: 'text-[7px] leading-tight', author: 'hidden', pad: 'px-1.5 pb-1.5', dot: 'hidden', spine: 'w-[3px]' },
-  sm: { title: 'text-[11px] leading-tight', author: 'text-[8px]', pad: 'px-2.5 pb-2.5', dot: 'h-4 w-4', spine: 'w-1' },
-  md: { title: 'text-[15px] leading-tight', author: 'text-[10px]', pad: 'px-3.5 pb-3.5', dot: 'h-6 w-6', spine: 'w-[9px]' },
-  lg: { title: 'text-xl leading-tight', author: 'text-xs', pad: 'px-5 pb-5', dot: 'h-12 w-12', spine: 'w-3.5' },
+  xs: { title: 'text-[7px] leading-tight', author: 'hidden', pad: 'px-1.5 pb-1.5', spine: 'w-[3px]' },
+  sm: { title: 'text-[11px] leading-tight', author: 'text-[8px]', pad: 'px-2.5 pb-2.5', spine: 'w-1' },
+  md: { title: 'text-[15px] leading-tight', author: 'text-[10px]', pad: 'px-3.5 pb-3.5', spine: 'w-[9px]' },
+  lg: { title: 'text-xl leading-tight', author: 'text-xs', pad: 'px-5 pb-5', spine: 'w-3.5' },
 }
 
 /** Згенерована книжкова обкладинка (або завантажене зображення). */
@@ -39,7 +39,6 @@ export function BookCover({ title, author, coverUrl, ratio = '148/146', size = '
       ) : (
         <>
           <div className={cn('absolute inset-0 flex flex-col items-start justify-end text-white', s.pad)}>
-            <span className={cn('absolute left-1/2 top-[22%] -translate-x-1/2 rounded-full border-2 border-white/50', s.dot)} />
             <span className={cn('font-bold', s.title)}>{title}</span>
             {author && <span className={cn('mt-1 opacity-80', s.author)}>{author}</span>}
           </div>

@@ -7,7 +7,7 @@ import { AddBookModal } from './AddBookModal'
 import { useStore, useToast } from '../store'
 import { AVAILABILITY_LABEL, STATUS_LABEL } from '../types'
 import type { Book, RequestType } from '../types'
-import { cn, initials } from '../lib/utils'
+import { cn, initials, todayLocal } from '../lib/utils'
 
 const statusTone = { mine: 'success', reserved: 'warn', lent: 'neutral' } as const
 
@@ -17,6 +17,7 @@ export function BookViewModal({ bookId, onClose }: { bookId: string; onClose: ()
   const me = useStore((s) => s.currentUserId)
   const isAdmin = useStore((s) => s.users.find((u) => u.id === s.currentUserId)?.role === 'admin')
   const removeBook = useStore((s) => s.removeBook)
+  const alreadyAsked = useStore((s) => s.requests.some((r) => r.fromUserId === s.currentUserId && r.bookId === bookId && r.status === 'pending'))
   const toast = useToast((s) => s.show)
   const [requesting, setRequesting] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -52,7 +53,7 @@ export function BookViewModal({ bookId, onClose }: { bookId: string; onClose: ()
             </Button>
           )}
           <Button variant="outline" onClick={onClose}>Закрити</Button>
-          {canRequest && <Button onClick={() => setRequesting(true)}>Подати запит</Button>}
+          {canRequest && (alreadyAsked ? <Button disabled>Запит уже надіслано</Button> : <Button onClick={() => setRequesting(true)}>Подати запит</Button>)}
         </>
       }
     >
@@ -135,7 +136,7 @@ export function RequestModal({ book, onClose, onBack }: { book: Book; onClose: (
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayLocal()
 
   const submit = () => {
     setError('')

@@ -8,7 +8,7 @@ import { StarPicker, Stars } from '../components/Stars'
 import { useStore, useToast } from '../store'
 import { REQUEST_STATUS_LABEL } from '../types'
 import type { Book, BookRequest, RequestStatus } from '../types'
-import { cn, fmtDate, initials, timeAgo } from '../lib/utils'
+import { cn, fmtDate, initials, timeAgo, todayLocal } from '../lib/utils'
 
 type Tab = 'pending' | 'active' | 'done'
 const TAB_STATUS: Record<Tab, RequestStatus[]> = {
@@ -36,11 +36,12 @@ function BookMini({ label, book }: { label: string; book: Book }) {
   )
 }
 
-function ReturnBox({ date }: { date?: string }) {
+function ReturnBox({ date, active }: { date?: string; active?: boolean }) {
+  const overdue = !!active && !!date && date < todayLocal()
   return (
     <div className="min-w-0">
-      <div className="mb-2 truncate text-[11px] font-semibold uppercase tracking-wide text-muted">Повернення до</div>
-      <div className="flex h-[76px] items-center gap-2.5 rounded-xl border border-line bg-beige/30 px-2.5">
+      <div className="mb-2 truncate text-[11px] font-semibold uppercase tracking-wide text-muted">{overdue ? 'Прострочено' : 'Повернення до'}</div>
+      <div className={cn('flex h-[76px] items-center gap-2.5 rounded-xl border px-2.5', overdue ? 'border-danger/50 bg-danger/10' : 'border-line bg-beige/30')}>
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sage/40 text-primary">
           <CalendarDays size={17} />
         </span>
@@ -119,24 +120,25 @@ function PickOfferModal({ request, onClose }: { request: BookRequest; onClose: (
 
 /** Необов'язковий відгук про співрозмовника після завершеної угоди. */
 function ReviewModal({ request, onClose }: { request: BookRequest; onClose: () => void }) {
+  const existing = useStore((s) => s.reviews.find((v) => v.requestId === request.id && v.fromUserId === s.currentUserId))
   const me = useStore((s) => s.currentUserId)!
   const other = useStore((s) => s.users.find((u) => u.id === (request.fromUserId === me ? request.toUserId : request.fromUserId)))
   const addReview = useStore((s) => s.addReview)
   const toast = useToast((s) => s.show)
-  const [rating, setRating] = useState(0)
-  const [comment, setComment] = useState('')
+  const [rating, setRating] = useState(existing?.rating ?? 0)
+  const [comment, setComment] = useState(existing?.comment ?? '')
   const [error, setError] = useState('')
 
   const submit = () => {
     const err = addReview(request.id, rating, comment)
     if (err) return setError(err)
-    toast('Дякуємо за відгук!')
+    toast(existing ? 'Відгук оновлено' : 'Дякуємо за відгук!')
     onClose()
   }
 
   return (
     <Modal
-      title="Залишити відгук"
+      title={existing ? 'Змінити відгук' : 'Залишити відгук'}
       subtitle={`Як минула угода з ${other?.name ?? 'користувачем'}? Це необов'язково`}
       onClose={onClose}
       footer={
@@ -218,7 +220,7 @@ export function Requests() {
           {isExchange ? (
             <BookMini label={incoming ? 'Пропонують' : 'Ви пропонуєте'} book={offered!} />
           ) : (
-            <ReturnBox date={r.returnDate} />
+            <ReturnBox date={r.returnDate} active={r.status === 'accepted'} />
           )}
         </div>
 
@@ -243,7 +245,7 @@ export function Requests() {
             (() => {
               const mineReview = reviews.find((v) => v.requestId === r.id && v.fromUserId === me)
               return mineReview ? (
-                <span className="flex items-center gap-2 text-[11px] text-muted">Ваш відгук: <Stars value={mineReview.rating} /></span>
+                <button className="flex items-center gap-2 text-[11px] text-muted hover:text-primary" onClick={() => setReviewFor(r)} title="Змінити відгук">Ваш відгук: <Stars value={mineReview.rating} /> <span className="font-semibold underline">змінити</span></button>
               ) : (
                 <span className="text-[11px] text-muted">Відгук необов'язковий</span>
               )
@@ -262,7 +264,7 @@ export function Requests() {
             {r.status === 'pending' && !incoming && (
               <Button variant="outline" className={btn} onClick={() => { cancel(r.id); toast('Запит скасовано') }}>Скасувати запит</Button>
             )}
-            {r.status === 'completed' && !reviews.some((v) => v.requestId === r.id && v.fromUserId === me) && (
+            {r.status === 'completed' && !!other && !reviews.some((v) => v.requestId === r.id && v.fromUserId === me) && (
               <Button variant="outline" className={btn} onClick={() => setReviewFor(r)}>Залишити відгук</Button>
             )}
             {r.status === 'accepted' && incoming && (

@@ -6,14 +6,16 @@ import { AddBookModal } from '../components/AddBookModal'
 import { useStore, useToast } from '../store'
 import { REQUEST_STATUS_LABEL, STATUS_LABEL } from '../types'
 import type { RequestStatus } from '../types'
-import { cn, findMatches, initials, timeAgo, visibleBooks } from '../lib/utils'
+import { cn, findMatches, fmtDate, initials, timeAgo, visibleBooks } from '../lib/utils'
+import { Stars } from '../components/Stars'
 
-type Tab = 'stats' | 'users' | 'books' | 'requests' | 'genres'
+type Tab = 'stats' | 'users' | 'books' | 'requests' | 'reviews' | 'genres'
 const TABS: [Tab, string][] = [
   ['stats', 'Статистика'],
   ['users', 'Користувачі'],
   ['books', 'Книги'],
   ['requests', 'Запити'],
+  ['reviews', 'Відгуки'],
   ['genres', 'Жанри'],
 ]
 const reqTone = { pending: 'warn', accepted: 'success', completed: 'primary', declined: 'danger', cancelled: 'neutral' } as const
@@ -354,6 +356,37 @@ function Requests() {
   )
 }
 
+/* ---------- Відгуки ---------- */
+function Reviews() {
+  const reviews = useStore((s) => s.reviews)
+  const users = useStore((s) => s.users)
+  const del = useStore((s) => s.deleteReview)
+  const toast = useToast((s) => s.show)
+  const list = [...reviews].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const name = (id: string) => users.find((u) => u.id === id)?.name ?? 'Видалений'
+  return list.length === 0 ? (
+    <Empty title="Відгуків ще немає" />
+  ) : (
+    <ul className="grid gap-3">
+      {list.map((v) => (
+        <li key={v.id} className="flex flex-wrap items-start gap-4 rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <div className="min-w-[220px] flex-1">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <b>{name(v.fromUserId)}</b> <span className="text-muted">→</span> <b>{name(v.toUserId)}</b>
+              <Stars value={v.rating} />
+            </div>
+            <p className="mt-1 text-sm text-ink/80">{v.comment || <span className="text-muted">Без коментаря</span>}</p>
+            <div className="mt-1 text-[11px] text-muted">{fmtDate(v.createdAt)}</div>
+          </div>
+          <Button variant="danger" className={small} onClick={() => { if (window.confirm('Видалити відгук?')) { del(v.id); toast('Відгук видалено') } }}>
+            <Trash2 size={14} /> Видалити
+          </Button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /* ---------- Жанри ---------- */
 function Genres() {
   const genres = useStore((s) => s.genres)
@@ -451,6 +484,7 @@ export function Admin() {
       {tab === 'users' && <Users />}
       {tab === 'books' && <Books />}
       {tab === 'requests' && <Requests />}
+      {tab === 'reviews' && <Reviews />}
       {tab === 'genres' && <Genres />}
     </>
   )

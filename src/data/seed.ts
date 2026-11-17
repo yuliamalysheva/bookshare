@@ -34,9 +34,9 @@ const books: B[] = [
   { id: 'b-tyhrolovy', ownerId: 'u-oleh', title: 'Тигролови', author: 'Іван Багряний', isbn: '9786171200000', genres: ['Пригоди', 'Класика'], status: 'mine', loan: true, exchange: true, order: 1 },
   { id: 'b-prince', ownerId: 'u-anna', title: 'Маленький принц', author: 'Антуан де Сент-Екзюпері', isbn: '9780156012195', genres: ['Класика'], status: 'mine', loan: false, exchange: true, order: 0 },
   { id: 'b-pride', ownerId: 'u-anna', title: 'Гордість і упередження', author: 'Джейн Остін', isbn: '9780141439518', genres: ['Романтика', 'Класика'], status: 'mine', loan: true, exchange: true, order: 1 },
-  { id: 'b-tini', ownerId: 'u-ihor', title: 'Тіні забутих предків', author: 'Михайло Коцюбинський', isbn: '9786171500000', genres: ['Класика'], status: 'reserved', loan: true, exchange: false, order: 0 },
+  { id: 'b-tini', ownerId: 'u-ihor', title: 'Тіні забутих предків', author: 'Михайло Коцюбинський', isbn: '9786171500000', genres: ['Класика'], status: 'mine', loan: true, exchange: false, order: 0 },
   { id: 'b-witcher', ownerId: 'u-ihor', title: 'Відьмак', author: 'Анджей Сапковський', isbn: '9788375780635', genres: ['Фентезі'], status: 'mine', loan: true, exchange: true, order: 1 },
-  { id: 'b-martian2', ownerId: 'u-sofia', title: 'Марсіанин', author: 'Енді Вейр', isbn: '9780553418026', genres: ['Фантастика'], status: 'lent', loan: true, exchange: false, order: 0 },
+  { id: 'b-martian2', ownerId: 'u-sofia', title: 'Марсіанин', author: 'Енді Вейр', isbn: '9780553418026', genres: ['Фантастика'], status: 'mine', loan: true, exchange: false, order: 0 },
   { id: 'b-lotr2', ownerId: 'u-sofia', title: 'Володар перснів', author: 'Дж. Р. Р. Толкін', isbn: '9780618640157', genres: ['Фентезі'], status: 'mine', loan: false, exchange: true, order: 1 },
   { id: 'b-dune2', ownerId: 'u-sofia', title: 'Дюна', author: 'Френк Герберт', isbn: '9780441172719', genres: ['Фантастика', 'Пригоди'], status: 'mine', loan: true, exchange: true, order: 2 },
 ]

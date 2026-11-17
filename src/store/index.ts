@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import type { Book, BookRequest, Notif, RequestType, Review, Role, User, WishItem } from '../types'
 import { DEFAULT_GENRES } from '../types'
 import { seedBooks, seedNotifications, seedRequests, seedReviews, seedUsers, seedWishlist } from '../data/seed'
-import { findMatches, isMatch, uid, visibleBooks } from '../lib/utils'
+import { findMatches, isMatch, normalize, uid, visibleBooks } from '../lib/utils'
 
 export interface NewBook {
   title: string
@@ -34,7 +34,7 @@ interface State {
   updateProfile: (p: Partial<Pick<User, 'name' | 'email' | 'city' | 'genres' | 'notifyOn' | 'contacts'>>) => string | null
   toggleTheme: () => void
 
-  addBook: (d: NewBook) => void
+  addBook: (d: NewBook) => string | null
   updateBook: (id: string, d: NewBook) => string | null
   removeBook: (id: string) => void
   reorderBooks: (ids: string[]) => void
@@ -54,6 +54,7 @@ interface State {
   markLent: (id: string) => void
   completeRequest: (id: string) => void
   addReview: (requestId: string, rating: number, comment: string) => string | null
+  deleteReview: (id: string) => void
 
   markRead: (id: string) => void
   markAllRead: () => void
@@ -113,37 +114,107 @@ function applyFreed(s: State, patch: Partial<State>): Partial<State> {
   return { ...patch, notifications }
 }
 
+const isAdminNow = (s: State) => s.users.find((u) => u.id === s.currentUserId)?.role === 'admin'
+const NO_RIGHTS = 'Недостатньо прав'
+const normIsbnLocal = (v: string) => v.replace(/[^0-9xX]/g, '').toUpperCase()
+
+/** Чи є в цього власника така сама книга (за ISBN або назвою й автором). */
+const hasDuplicate = (books: Book[], ownerId: string, d: NewBook, exceptId?: string) =>
+  books.some(
+    (b) =>
+      b.ownerId === ownerId &&
+      b.id !== exceptId &&
+      ((normIsbnLocal(d.isbn) !== '' && normIsbnLocal(b.isbn) === normIsbnLocal(d.isbn)) ||
+        (normalize(b.title) === normalize(d.title) && normalize(b.author) === normalize(d.author))),
+  )
+
+const closedNotif = (userId: string, bookTitle: string, reason: Notif['reason'], requestId?: string): Notif => ({
+  id: uid(), userId, type: 'request_closed', bookTitle, reason, requestId, read: false, createdAt: now(),
+})
+
+/**
+ * Закриває всі активні запити користувача (блокування / видалення акаунта):
+ * очікувані скасовуються або відхиляються, підтверджені скасовуються, книги звільняються,
+ * друга сторона отримує сповіщення.
+ */
+function closeRequestsOf(s: State, userId: string, reason: 'blocked' | 'deleted', keepRequestId: boolean) {
+  const affected = s.requests.filter(
+    (r) => (r.fromUserId === userId || r.toUserId === userId) && (r.status === 'pending' || r.status === 'accepted'),
+  )
+  const ids = new Set(affected.map((r) => r.id))
+  const free = new Set<string>()
+  const notifs: Notif[] = []
+  for (const r of affected) {
+    if (r.status === 'accepted') { free.add(r.bookId); if (r.offeredBookId) free.add(r.offeredBookId) }
+    const other = r.fromUserId === userId ? r.toUserId : r.fromUserId
+    notifs.push(closedNotif(other, s.books.find((b) => b.id === r.bookId)?.title ?? '', reason, keepRequestId ? r.id : undefined))
+  }
+  return { affected, ids, free, notifs }
+}
+
 /** Прибирає користувача та все, що з ним пов'язано. */
 function purgeUser(s: State, id: string): Partial<State> {
+  const closing = closeRequestsOf(s, id, 'deleted', false)
   const bookIds = new Set(s.books.filter((b) => b.ownerId === id).map((b) => b.id))
-  const dropped = s.requests.filter((r) => r.fromUserId === id || r.toUserId === id || bookIds.has(r.bookId) || (r.offeredBookId && bookIds.has(r.offeredBookId)))
-  const droppedIds = new Set(dropped.map((r) => r.id))
-  // книги інших людей, заброньовані через видалені запити, знову стають доступними
-  const free = new Set<string>()
-  for (const r of dropped) {
-    if (r.status !== 'accepted') continue
-    free.add(r.bookId)
-    if (r.offeredBookId) free.add(r.offeredBookId)
-  }
+  // завершені угоди лишаються в історії інших; решта запитів з цим користувачем зникає
+  const touches = (r: BookRequest) =>
+    r.fromUserId === id || r.toUserId === id || bookIds.has(r.bookId) || (!!r.offeredBookId && bookIds.has(r.offeredBookId))
+  const droppedIds = new Set(s.requests.filter((r) => touches(r) && r.status !== 'completed').map((r) => r.id))
   return {
     users: s.users.filter((u) => u.id !== id),
     books: s.books
       .filter((b) => b.ownerId !== id)
-      .map((b) => (free.has(b.id) && b.status !== 'mine' ? { ...b, status: 'mine' as const } : b)),
+      .map((b) => (closing.free.has(b.id) && b.status !== 'mine' ? { ...b, status: 'mine' as const } : b)),
     wishlist: s.wishlist.filter((w) => w.userId !== id),
     requests: s.requests.filter((r) => !droppedIds.has(r.id)),
-    notifications: s.notifications.filter((n) => n.userId !== id && !(n.requestId && droppedIds.has(n.requestId))),
-    reviews: s.reviews.filter((r) => r.fromUserId !== id && r.toUserId !== id && !droppedIds.has(r.requestId)),
+    notifications: [
+      ...closing.notifs,
+      ...s.notifications.filter((n) => n.userId !== id && !(n.requestId && droppedIds.has(n.requestId))),
+    ],
+    // відгуки про видаленого зникають, його власні відгуки про інших лишаються
+    reviews: s.reviews.filter((r) => r.toUserId !== id),
   }
 }
 
 const adminCount = (users: User[]) => users.filter((u) => u.role === 'admin' && !u.blocked).length
 
+const SESSION_KEY = 'bookshare:session'
+const STORAGE_KEY = 'bookshare:v1'
+
+/** Хто увійшов — зберігаємо окремо для кожної вкладки, щоб у двох вкладках можна було бути різними користувачами. */
+const readSession = (): string | null => {
+  try {
+    return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(SESSION_KEY) : null
+  } catch {
+    return null
+  }
+}
+
+/** LocalStorage може бути недоступним або переповненим — тоді застосунок просто працює без збереження. */
+const safeStorage = {
+  getItem: (k: string) => {
+    try { return localStorage.getItem(k) } catch { return null }
+  },
+  setItem: (k: string, v: string) => {
+    try { localStorage.setItem(k, v) } catch { /* переповнено або заборонено */ }
+  },
+  removeItem: (k: string) => {
+    try { localStorage.removeItem(k) } catch { /* ignore */ }
+  },
+}
+
+/** Повністю скидає демо-дані та перезавантажує сторінку. */
+export function resetDemoData() {
+  safeStorage.removeItem(STORAGE_KEY)
+  try { sessionStorage.removeItem(SESSION_KEY) } catch { /* ignore */ }
+  location.reload()
+}
+
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
       users: seedUsers,
-      currentUserId: null,
+      currentUserId: readSession(),
       books: seedBooks,
       wishlist: seedWishlist,
       requests: seedRequests,
@@ -204,6 +275,7 @@ export const useStore = create<State>()(
       addBook: (d) => {
         const s = get()
         const me = s.currentUserId!
+        if (hasDuplicate(s.books, me, d)) return 'Така книга вже є у вашій бібліотеці'
         const mine = s.books.filter((b) => b.ownerId === me)
         const book: Book = {
           id: uid(),
@@ -223,6 +295,7 @@ export const useStore = create<State>()(
         const books = [...s.books, book]
         const others = s.users.filter((u) => u.id !== me).map((u) => u.id)
         set({ books, notifications: withMatchNotifs(s.users, books, s.wishlist, s.notifications, others) })
+        return null
       },
 
       updateBook: (id, d) => {
@@ -230,6 +303,7 @@ export const useStore = create<State>()(
         const old = s.books.find((b) => b.id === id)
         const actor = s.users.find((u) => u.id === s.currentUserId)
         if (!old || (old.ownerId !== s.currentUserId && actor?.role !== 'admin')) return 'Книгу не знайдено'
+        if (hasDuplicate(s.books, old.ownerId, d, id)) return 'Така книга вже є у вашій бібліотеці'
         const books = s.books.map((b) =>
           b.id === id
             ? {
@@ -245,8 +319,25 @@ export const useStore = create<State>()(
               }
             : b,
         )
+        // очікувані запити, що більше не відповідають умовам книги, закриваємо
+        const closedIds = new Set<string>()
+        const closeNotifs: Notif[] = []
+        const requests = s.requests.map((r) => {
+          if (r.status !== 'pending') return r
+          const asRequested = r.bookId === id && ((r.type === 'loan' && !d.loan) || (r.type === 'exchange' && !d.exchange))
+          const asOffered = r.offeredBookId === id && !d.exchange
+          if (!asRequested && !asOffered) return r
+          closedIds.add(r.id)
+          // якщо змінили запитану книгу — відхиляємо запит; якщо запропоновану — запит знято
+          closeNotifs.push(closedNotif(asRequested ? r.fromUserId : r.toUserId, d.title.trim(), 'changed', r.id))
+          return { ...r, status: asRequested ? ('declined' as const) : ('cancelled' as const), auto: true, updatedAt: now() }
+        })
         const others = s.users.filter((u) => u.id !== old.ownerId).map((u) => u.id)
-        set({ books, notifications: withMatchNotifs(s.users, books, s.wishlist, s.notifications, others) })
+        set({
+          books,
+          requests,
+          notifications: withMatchNotifs(s.users, books, s.wishlist, [...closeNotifs, ...s.notifications], others),
+        })
         return null
       },
 
@@ -254,6 +345,7 @@ export const useStore = create<State>()(
         set((s) => {
           const book = s.books.find((b) => b.id === id)
           if (!book) return s
+          if (book.ownerId !== s.currentUserId && !isAdminNow(s)) return s
           const byAdmin = s.currentUserId !== book.ownerId
           const active = s.requests.filter(
             (r) => (r.bookId === id || r.offeredBookId === id) && (r.status === 'pending' || r.status === 'accepted'),
@@ -325,7 +417,10 @@ export const useStore = create<State>()(
         const me = s.currentUserId!
         const book = s.books.find((b) => b.id === bookId)
         if (!book) return 'Книгу не знайдено'
+        if (book.ownerId === me) return 'Не можна просити власну книгу'
         if (book.status !== 'mine') return 'Ця книга зараз недоступна'
+        if ((type === 'loan' && !book.loan) || (type === 'exchange' && !book.exchange))
+          return type === 'loan' ? 'Цю книгу не дають у позику' : 'Цю книгу не міняють'
         if (type === 'exchange') {
           const off = s.books.find((b) => b.id === offeredBookId)
           if (!off || off.ownerId !== me || off.status !== 'mine' || !off.exchange) return 'Запропонована книга недоступна для обміну'
@@ -346,10 +441,8 @@ export const useStore = create<State>()(
           createdAt: now(),
           updatedAt: now(),
         }
-        const owner = s.users.find((u) => u.id === book.ownerId)
-        const notifications = owner?.notifyOn
-          ? [{ id: uid(), userId: book.ownerId, type: 'request_received' as const, requestId: req.id, read: false, createdAt: now() }, ...s.notifications]
-          : s.notifications
+        // про новий запит власник дізнається завжди: від цього залежить угода
+        const notifications = [{ id: uid(), userId: book.ownerId, type: 'request_received' as const, requestId: req.id, read: false, createdAt: now() }, ...s.notifications]
         set({ requests: [req, ...s.requests], notifications })
         return null
       },
@@ -358,6 +451,7 @@ export const useStore = create<State>()(
         const s = get()
         const r0 = s.requests.find((x) => x.id === id)
         if (!r0 || r0.status !== 'pending') return null
+        if (r0.toUserId !== s.currentUserId) return 'Відповісти може лише власник книги'
         let r = r0
         if (accept && newOfferedBookId && newOfferedBookId !== r0.offeredBookId) {
           const nb = s.books.find((b) => b.id === newOfferedBookId)
@@ -367,6 +461,15 @@ export const useStore = create<State>()(
         }
         const reserved = new Set(accept ? [r.bookId, ...(r.offeredBookId ? [r.offeredBookId] : [])] : [])
         if (accept) {
+          // умови угоди мають і далі виконуватись
+          const okBook = (b: Book | undefined, ownerId: string) => !!b && b.ownerId === ownerId && !b.hidden && !s.users.find((u) => u.id === ownerId)?.blocked
+          const reqBook = s.books.find((b) => b.id === r.bookId)
+          const offBook = r.offeredBookId ? s.books.find((b) => b.id === r.offeredBookId) : undefined
+          const requester = s.users.find((u) => u.id === r.fromUserId)
+          const flagsOk = !!reqBook && (r.type === 'loan' ? reqBook.loan : reqBook.exchange)
+          const offerOk = r.type !== 'exchange' || (okBook(offBook, r.fromUserId) && !!offBook?.exchange)
+          if (!requester || requester.blocked || !okBook(reqBook, r.toUserId) || !flagsOk || !offerOk)
+            return 'Цей запит більше неможливо підтвердити: книга прихована, недоступна або змінила умови'
           // обидві книги угоди мають бути вільними
           const busy = [...reserved].some((bid) => s.books.find((b) => b.id === bid)?.status !== 'mine')
           if (busy) return 'Ця книга вже недоступна — її заброньовано або передано іншому читачу'
@@ -396,7 +499,7 @@ export const useStore = create<State>()(
             x.id === id
               ? { ...r, status: accept ? 'accepted' : 'declined', updatedAt: now() }
               : clashIds.has(x.id)
-                ? { ...x, status: 'declined' as const, updatedAt: now() }
+                ? { ...x, status: 'declined' as const, auto: true, updatedAt: now() }
                 : x,
           ),
           books: s.books.map((b) => (reserved.has(b.id) ? { ...b, status: 'reserved' } : b)),
@@ -406,27 +509,39 @@ export const useStore = create<State>()(
       },
 
       cancelRequest: (id) =>
-        set((s) => ({
-          requests: s.requests.map((r) =>
-            r.id === id && r.status === 'pending' ? { ...r, status: 'cancelled', updatedAt: now() } : r,
-          ),
-        })),
+        set((s) => {
+          const r = s.requests.find((x) => x.id === id)
+          if (!r || r.status !== 'pending' || r.fromUserId !== s.currentUserId) return s
+          return {
+            requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'cancelled' as const, updatedAt: now() } : x)),
+            // сповіщення про сам запит більше не актуальне
+            notifications: [
+              { id: uid(), userId: r.toUserId, type: 'request_withdrawn' as const, requestId: r.id, read: false, createdAt: now() },
+              ...s.notifications.filter((n) => !(n.type === 'request_received' && n.requestId === id)),
+            ],
+          }
+        }),
 
       markLent: (id) =>
         set((s) => {
           const r = s.requests.find((x) => x.id === id)
-          if (!r) return s
-          return { books: s.books.map((b) => (b.id === r.bookId ? { ...b, status: 'lent' } : b)) }
+          if (!r || r.status !== 'accepted' || r.type !== 'loan' || r.toUserId !== s.currentUserId) return s
+          if (s.books.find((b) => b.id === r.bookId)?.status !== 'reserved') return s
+          return {
+            books: s.books.map((b) => (b.id === r.bookId ? { ...b, status: 'lent' as const } : b)),
+            notifications: [{ id: uid(), userId: r.fromUserId, type: 'request_lent' as const, requestId: r.id, read: false, createdAt: now() }, ...s.notifications],
+          }
         }),
 
       completeRequest: (id) =>
         set((s) => {
           const r = s.requests.find((x) => x.id === id)
-          if (!r || r.status !== 'accepted') return s
+          if (!r || r.status !== 'accepted' || r.toUserId !== s.currentUserId) return s
           const ids = new Set([r.bookId, ...(r.offeredBookId ? [r.offeredBookId] : [])])
           return applyFreed(s, {
             requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'completed', updatedAt: now() } : x)),
             books: s.books.map((b) => (ids.has(b.id) ? { ...b, status: 'mine' } : b)),
+            notifications: [{ id: uid(), userId: r.fromUserId, type: 'request_completed' as const, requestId: r.id, read: false, createdAt: now() }, ...s.notifications],
           })
         }),
 
@@ -436,8 +551,15 @@ export const useStore = create<State>()(
         const r = s.requests.find((x) => x.id === requestId)
         if (!me || !r || r.status !== 'completed') return 'Відгук можна залишити лише після завершення угоди'
         if (r.fromUserId !== me && r.toUserId !== me) return 'Ви не берете участі в цій угоді'
-        if (s.reviews.some((v) => v.requestId === requestId && v.fromUserId === me)) return 'Ви вже залишили відгук'
+        const otherId = r.fromUserId === me ? r.toUserId : r.fromUserId
+        if (!s.users.some((u) => u.id === otherId)) return 'Цього користувача більше немає на платформі'
         if (!Number.isInteger(rating) || rating < 1 || rating > 5) return 'Оберіть оцінку від 1 до 5'
+        const existing = s.reviews.find((v) => v.requestId === requestId && v.fromUserId === me)
+        if (existing) {
+          // свій відгук можна змінити
+          set({ reviews: s.reviews.map((v) => (v.id === existing.id ? { ...v, rating, comment: comment.trim().slice(0, 500), updatedAt: now() } : v)) })
+          return null
+        }
         const review: Review = {
           id: uid(), requestId, fromUserId: me, toUserId: r.fromUserId === me ? r.toUserId : r.fromUserId,
           rating, comment: comment.trim().slice(0, 500), createdAt: now(),
@@ -449,6 +571,13 @@ export const useStore = create<State>()(
         return null
       },
 
+      deleteReview: (id) =>
+        set((s) => {
+          const v = s.reviews.find((x) => x.id === id)
+          if (!v || (v.fromUserId !== s.currentUserId && !isAdminNow(s))) return s
+          return { reviews: s.reviews.filter((x) => x.id !== id), notifications: s.notifications.filter((n) => n.reviewId !== id) }
+        }),
+
       markRead: (id) =>
         set((s) => ({ notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) })),
 
@@ -459,15 +588,33 @@ export const useStore = create<State>()(
 
       adminSetBlocked: (userId, blocked) => {
         const s = get()
+        if (!isAdminNow(s)) return NO_RIGHTS
         if (userId === s.currentUserId) return 'Не можна заблокувати власний акаунт'
         const u = s.users.find((x) => x.id === userId)
         if (!u) return 'Користувача не знайдено'
-        set(applyFreed(s, { users: s.users.map((x) => (x.id === userId ? { ...x, blocked } : x)) }))
+        const users = s.users.map((x) => (x.id === userId ? { ...x, blocked } : x))
+        if (!blocked) {
+          set(applyFreed(s, { users }))
+          return null
+        }
+        // блокування закриває всі активні запити користувача
+        const closing = closeRequestsOf(s, userId, 'blocked', true)
+        set(applyFreed(s, {
+          users,
+          requests: s.requests.map((r) =>
+            closing.ids.has(r.id)
+              ? { ...r, status: (r.status === 'pending' && r.toUserId === userId ? 'declined' : 'cancelled') as BookRequest['status'], auto: true, updatedAt: now() }
+              : r,
+          ),
+          books: s.books.map((b) => (closing.free.has(b.id) ? { ...b, status: 'mine' as const } : b)),
+          notifications: [...closing.notifs, ...s.notifications],
+        }))
         return null
       },
 
       adminDeleteUser: (userId) => {
         const s = get()
+        if (!isAdminNow(s)) return NO_RIGHTS
         if (userId === s.currentUserId) return 'Не можна видалити власний акаунт тут'
         const u = s.users.find((x) => x.id === userId)
         if (!u) return 'Користувача не знайдено'
@@ -478,6 +625,7 @@ export const useStore = create<State>()(
 
       adminSetRole: (userId, role) => {
         const s = get()
+        if (!isAdminNow(s)) return NO_RIGHTS
         const u = s.users.find((x) => x.id === userId)
         if (!u) return 'Користувача не знайдено'
         if (role === 'user' && u.role === 'admin' && adminCount(s.users) <= 1)
@@ -488,12 +636,12 @@ export const useStore = create<State>()(
       },
 
       adminToggleHidden: (bookId) =>
-        set((s) => applyFreed(s, { books: s.books.map((b) => (b.id === bookId ? { ...b, hidden: !b.hidden } : b)) })),
+        set((s) => !isAdminNow(s) ? s : applyFreed(s, { books: s.books.map((b) => (b.id === bookId ? { ...b, hidden: !b.hidden } : b)) })),
 
       adminCancelRequest: (id) => {
         const s = get()
         const r = s.requests.find((x) => x.id === id)
-        if (!r || (r.status !== 'pending' && r.status !== 'accepted')) return
+        if (!isAdminNow(s) || !r || (r.status !== 'pending' && r.status !== 'accepted')) return
         const free = new Set(r.status === 'accepted' ? [r.bookId, ...(r.offeredBookId ? [r.offeredBookId] : [])] : [])
         const notify = (userId: string): Notif => ({
           id: uid(), userId, type: 'request_cancelled', requestId: r.id, read: false, createdAt: now(),
@@ -509,6 +657,7 @@ export const useStore = create<State>()(
         const n = name.trim()
         if (!n) return 'Вкажіть назву жанру'
         const s = get()
+        if (!isAdminNow(s)) return NO_RIGHTS
         if (s.genres.some((g) => g.toLowerCase() === n.toLowerCase())) return 'Такий жанр уже є'
         set({ genres: [...s.genres, n] })
         return null
@@ -518,6 +667,7 @@ export const useStore = create<State>()(
         const n = newName.trim()
         if (!n) return 'Вкажіть назву жанру'
         const s = get()
+        if (!isAdminNow(s)) return NO_RIGHTS
         if (n !== oldName && s.genres.some((g) => g.toLowerCase() === n.toLowerCase())) return 'Такий жанр уже є'
         const swap = (list: string[]) => [...new Set(list.map((g) => (g === oldName ? n : g)))]
         set({
@@ -530,6 +680,7 @@ export const useStore = create<State>()(
 
       deleteGenre: (name) => {
         const s = get()
+        if (!isAdminNow(s)) return NO_RIGHTS
         const used = s.books.filter((b) => b.genres.includes(name)).length
         if (used > 0) return `Жанр використовують книги (${used}). Спершу перейменуйте його або змініть жанр у книгах`
         set({
@@ -540,8 +691,16 @@ export const useStore = create<State>()(
       },
     }),
     {
-      name: 'bookshare:v1',
-      version: 4,
+      name: STORAGE_KEY,
+      version: 5,
+      storage: createJSONStorage(() => safeStorage),
+      // хто увійшов — не зберігаємо в спільному сховищі
+      partialize: (s) => {
+        const { currentUserId: _omit, ...rest } = s
+        void _omit
+        return rest as State
+      },
+      merge: (persisted, current) => ({ ...current, ...(persisted as Partial<State>), currentUserId: current.currentUserId }),
       migrate: (persisted, version) => {
         const st = persisted as Partial<State>
         if (version < 2) {
@@ -556,6 +715,12 @@ export const useStore = create<State>()(
           st.users = (st.users ?? []).map((u) => ({ ...u, createdAt: u.createdAt ?? seedUsers.find((x) => x.id === u.id)?.createdAt }))
         }
         if (version < 4) st.reviews = st.reviews ?? seedReviews
+        if (version < 5) {
+          // книги, заброньовані без підтвердженого запиту, повертаємо в доступні
+          const held = new Set<string>()
+          for (const r of st.requests ?? []) if (r.status === 'accepted') { held.add(r.bookId); if (r.offeredBookId) held.add(r.offeredBookId) }
+          st.books = (st.books ?? []).map((b) => (b.status !== 'mine' && !held.has(b.id) ? { ...b, status: 'mine' as const } : b))
+        }
         return st as State
       },
     },
@@ -576,3 +741,17 @@ export const useToast = create<ToastState>((set) => ({
 }))
 
 export { isMatch }
+
+// Запам'ятовуємо користувача вкладки та підтягуємо зміни, зроблені в іншій вкладці
+if (typeof window !== 'undefined') {
+  useStore.subscribe((s, prev) => {
+    if (s.currentUserId === prev.currentUserId) return
+    try {
+      if (s.currentUserId) sessionStorage.setItem(SESSION_KEY, s.currentUserId)
+      else sessionStorage.removeItem(SESSION_KEY)
+    } catch { /* ignore */ }
+  })
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) void useStore.persist.rehydrate()
+  })
+}

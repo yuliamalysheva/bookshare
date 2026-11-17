@@ -125,7 +125,8 @@ export function AddBookModal({ onClose, book }: { onClose: () => void; book?: Bo
       if (err) return toast(err)
       toast('Зміни збережено')
     } else {
-      addBook(data)
+      const err = addBook(data)
+      if (err) return toast(err)
       toast('Книгу додано до бібліотеки')
     }
     onClose()

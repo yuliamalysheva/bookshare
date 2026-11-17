@@ -21,6 +21,11 @@ function AdminGuard({ children }: { children: ReactNode }) {
 function Protected() {
   const me = useStore((s) => s.currentUserId)
   const exists = useStore((s) => s.users.some((u) => u.id === s.currentUserId && !u.blocked))
+  const logout = useStore((s) => s.logout)
+  // акаунт заблокували або видалили, поки користувач був у системі
+  useEffect(() => {
+    if (me && !exists) logout()
+  }, [me, exists, logout])
   if (!me || !exists) return <Navigate to="/login" replace />
   return <Layout />
 }

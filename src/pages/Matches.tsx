@@ -4,7 +4,7 @@ import { Button, Chip, Empty, PageHeader, StatCard } from '../components/ui'
 import { BookCover } from '../components/BookCover'
 import { BookViewModal } from '../components/BookModals'
 import { useStore } from '../store'
-import { cn, findMatches, timeAgo, visibleBooks } from '../lib/utils'
+import { cn, findMatches, fmtDate, timeAgo, visibleBooks } from '../lib/utils'
 import type { Notif } from '../types'
 
 type Filter = 'all' | 'match' | 'request' | 'unread'
@@ -78,6 +78,17 @@ export function Matches() {
       const who = users.find((u) => u.id === rv?.fromUserId)
       return { icon: Star, title: 'Новий відгук', text: `${who?.name ?? 'Читач'} залишив(-ла) вам відгук${rv ? `: ${rv.rating} з 5` : ''}`, bookId: undefined }
     }
+    if (n.type === 'request_closed') {
+      const t = n.bookTitle || b?.title || '…'
+      const why = n.reason === 'blocked' ? 'акаунт другої сторони заблоковано' : n.reason === 'deleted' ? 'акаунт другої сторони видалено' : 'власник змінив умови книги'
+      return { icon: XCircle, title: 'Запит закрито', text: `Запит на «${t}» закрито: ${why}. Книга знову доступна`, bookId: undefined }
+    }
+    if (n.type === 'request_withdrawn')
+      return { icon: XCircle, title: 'Запит скасовано', text: `${from?.name ?? 'Читач'} скасував(-ла) запит на «${b?.title ?? '…'}»`, bookId: undefined }
+    if (n.type === 'request_lent')
+      return { icon: CheckCircle2, title: 'Книгу передано', text: `${to?.name ?? 'Власник'} позначив(-ла) «${b?.title ?? '…'}» як передану вам${r?.returnDate ? `. Повернути до ${fmtDate(r.returnDate)}` : ''}`, bookId: undefined }
+    if (n.type === 'request_completed')
+      return { icon: CheckCircle2, title: 'Угоду завершено', text: `${to?.name ?? 'Власник'} завершив(-ла) ${kind} «${b?.title ?? '…'}». Можна залишити відгук у «Мої запити»`, bookId: undefined }
     if (n.type === 'request_unavailable')
       return { icon: XCircle, title: 'Запит відхилено автоматично', text: `Книгу «${b?.title ?? '…'}» вже заброньовано для іншого читача`, bookId: undefined }
     if (n.type === 'request_cancelled')

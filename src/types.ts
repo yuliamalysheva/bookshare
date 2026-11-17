@@ -96,6 +96,8 @@ export interface BookRequest {
   offeredBookId?: string
   /** власник обрав іншу книгу замість запропонованої */
   counter?: boolean
+  /** запит закрила система, а не людина */
+  auto?: boolean
   returnDate?: string
   message: string
   status: RequestStatus
@@ -103,7 +105,7 @@ export interface BookRequest {
   updatedAt: string
 }
 
-export type NotifType = 'match' | 'request_received' | 'request_accepted' | 'request_declined' | 'request_cancelled' | 'request_unavailable' | 'book_removed' | 'review_received'
+export type NotifType = 'match' | 'request_received' | 'request_accepted' | 'request_declined' | 'request_cancelled' | 'request_unavailable' | 'book_removed' | 'review_received' | 'request_closed' | 'request_withdrawn' | 'request_lent' | 'request_completed'
 
 export interface Notif {
   id: string
@@ -115,6 +117,8 @@ export interface Notif {
   /** книга знову стала доступною */
   back?: boolean
   bookTitle?: string
+  /** чому запит закрито системою */
+  reason?: 'blocked' | 'deleted' | 'changed'
   /** книгу видалив адміністратор */
   byAdmin?: boolean
   /** книгу прибрано зі списку бажаного */
@@ -133,4 +137,5 @@ export interface Review {
   rating: number
   comment: string
   createdAt: string
+  updatedAt?: string
 }

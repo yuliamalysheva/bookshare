@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Bell, LogOut, Moon, TriangleAlert } from 'lucide-react'
 import { Button, Chip, PageHeader, StatCard, TextField, Toggle } from '../components/ui'
 import { useStore, useToast } from '../store'
-import { cn, findMatches, initials } from '../lib/utils'
+import { cn, findMatches, initials, visibleBooks } from '../lib/utils'
 
 export function Profile() {
   const me = useStore((s) => s.users.find((u) => u.id === s.currentUserId))!
@@ -10,6 +10,7 @@ export function Profile() {
   const GENRES = useStore((s) => s.genres)
   const wishlist = useStore((s) => s.wishlist)
   const requests = useStore((s) => s.requests)
+  const users = useStore((s) => s.users)
   const theme = useStore((s) => s.theme)
   const toggleTheme = useStore((s) => s.toggleTheme)
   const updateProfile = useStore((s) => s.updateProfile)
@@ -46,9 +47,9 @@ export function Profile() {
       books: books.filter((b) => b.ownerId === me.id).length,
       wishes: wishlist.filter((w) => w.userId === me.id).length,
       requests: requests.filter((r) => r.fromUserId === me.id || r.toUserId === me.id).length,
-      matches: findMatches(wishlist, books, me.id).length,
+      matches: findMatches(wishlist, visibleBooks(books, users), me.id).length,
     }),
-    [books, wishlist, requests, me.id],
+    [books, wishlist, requests, users, me.id],
   )
 
   const save = () => {
@@ -174,7 +175,7 @@ export function Profile() {
         <section className="rounded-2xl border border-line bg-surface p-6 shadow-card">
           <h2 className="font-semibold">Налаштування</h2>
           <div className="mt-5 divide-y divide-line">
-            <Row icon={<Bell size={18} />} title="Сповіщення" desc="Збіги та запити">
+            <Row icon={<Bell size={18} />} title="Сповіщення" desc="Збіги зі списком бажаного">
               <Toggle label="Сповіщення" checked={me.notifyOn} onChange={(v) => updateProfile({ notifyOn: v })} />
             </Row>
             <Row icon={<Moon size={18} />} title="Темна тема" desc="Вигляд інтерфейсу">
